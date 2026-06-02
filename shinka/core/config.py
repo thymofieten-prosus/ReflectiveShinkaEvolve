@@ -44,6 +44,18 @@ class EvolutionConfig:
     code_embed_sim_threshold: float = 0.99
     novelty_llm_models: Optional[List[str]] = None
     novelty_llm_kwargs: dict = field(default_factory=lambda: {})
+    use_reflection: bool = False
+    reflection_llm_models: Optional[List[str]] = None
+    reflection_llm_kwargs: dict = field(
+        default_factory=lambda: {"temperatures": [0.0], "max_tokens": 1024}
+    )
+    reflection_replace_feedback: bool = True
+    reflection_grounding: bool = True
+    reflection_patch_types: List[str] = field(default_factory=lambda: ["diff", "full"])
+    reflection_control_fraction: float = 0.2
+    reflection_min_evidence_chars: int = 40
+    reflection_contrastive: bool = True
+    reflection_min_score_gap: float = 0.0
     use_text_feedback: bool = False
     max_api_costs: Optional[float] = None
     inspiration_sort_order: str = "ascending"

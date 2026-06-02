@@ -52,13 +52,21 @@ def _load_pricing_dataframe() -> pd.DataFrame:
     df["output_price_tier2"] = df["output_price_tier2"] / M
 
     # Convert is_reasoning to boolean
-    df["is_reasoning"] = df["is_reasoning"] == "True"
+    df["is_reasoning"] = (
+        df["is_reasoning"].astype(str).str.strip().str.strip('"').str.strip() == "True"
+    )
 
     # Convert think_temp_fixed to boolean (handle both string "1" and int 1)
-    df["think_temp_fixed"] = df["think_temp_fixed"].astype(str) == "1"
+    df["think_temp_fixed"] = (
+        df["think_temp_fixed"].astype(str).str.strip().str.strip('"').str.strip()
+        == "1"
+    )
 
     # Convert requires_reasoning to boolean (handle both string "1" and int 1)
-    df["requires_reasoning"] = df["requires_reasoning"].astype(str) == "1"
+    df["requires_reasoning"] = (
+        df["requires_reasoning"].astype(str).str.strip().str.strip('"').str.strip()
+        == "1"
+    )
 
     # Set index to model_name for fast lookups
     df = df.set_index("model_name")
@@ -172,6 +180,21 @@ def has_fixed_temperature(model_name: str) -> bool:
     if model_name not in _PRICING_DF.index:
         return False
     return _PRICING_DF.loc[model_name, "think_temp_fixed"]
+
+
+_TEMPERATURE_UNSUPPORTED = {
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "gpt-5.5",
+    "gpt-5.5-pro",
+    "us.anthropic.claude-opus-4-8",
+    "anthropic.claude-opus-4-7",
+}
+
+
+def temperature_unsupported(model_name: str) -> bool:
+    """Models that reject the `temperature` request param entirely."""
+    return model_name in _TEMPERATURE_UNSUPPORTED
 
 
 def requires_reasoning(model_name: str) -> bool:

@@ -3,6 +3,7 @@ from .prompts_base import (
     construct_individual_program_msg,
     perf_str,
     format_text_feedback_section,
+    format_reflection_section,
     BASE_SYSTEM_MSG,
 )
 from .prompts_diff import DIFF_SYS_FORMAT, DIFF_ITER_MSG
@@ -31,6 +32,7 @@ from .prompts_meta import (
     META_STEP3_USER_MSG,
 )
 from .prompts_novelty import NOVELTY_SYSTEM_MSG, NOVELTY_USER_MSG
+from .prompts_reflect import REFLECT_SYSTEM_MSG, REFLECT_USER_MSG
 from .prompts_prompt_evo import (
     PROMPT_EVO_DIFF_SYSTEM,
     PROMPT_EVO_DIFF_USER,
@@ -50,6 +52,7 @@ __all__ = [
     "construct_individual_program_msg",
     "perf_str",
     "format_text_feedback_section",
+    "format_reflection_section",
     "BASE_SYSTEM_MSG",
     "DIFF_SYS_FORMAT",
     "DIFF_ITER_MSG",
@@ -72,6 +75,8 @@ __all__ = [
     "META_STEP3_USER_MSG",
     "NOVELTY_SYSTEM_MSG",
     "NOVELTY_USER_MSG",
+    "REFLECT_SYSTEM_MSG",
+    "REFLECT_USER_MSG",
     # Prompt evolution prompts
     "PROMPT_EVO_DIFF_SYSTEM",
     "PROMPT_EVO_DIFF_USER",

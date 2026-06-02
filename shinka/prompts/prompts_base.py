@@ -36,6 +36,18 @@ Here is additional text feedback about the current program:
 """
 
 
+def format_reflection_section(diagnosis: str) -> str:
+    """Format a grounded reflection diagnosis for inclusion in prompts."""
+    if not diagnosis or not diagnosis.strip():
+        return ""
+
+    return f"""
+A grounded diagnosis of the current program to guide your next edit:
+
+{diagnosis.strip()}
+"""
+
+
 def construct_eval_history_msg(
     inspiration_programs: List[Program],
     language: str = "python",

@@ -49,6 +49,8 @@ from shinka.core.summarizer import MetaSummarizer
 from shinka.core.async_summarizer import AsyncMetaSummarizer
 from shinka.core.async_novelty_judge import AsyncNoveltyJudge
 from shinka.core.novelty_judge import NoveltyJudge
+from shinka.core.reflector import Reflector
+from shinka.core.async_reflector import AsyncReflector
 from shinka.core.config import EvolutionConfig, FOLDER_PREFIX
 from shinka.core.pipeline_timing import (
     summarize_timing_metadata,
@@ -416,6 +418,10 @@ class ShinkaEvolveRunner:
             patch_types=evo_config.patch_types,
             patch_type_probs=evo_config.patch_type_probs,
             use_text_feedback=evo_config.use_text_feedback,
+            use_reflection=evo_config.use_reflection,
+            reflection_patch_types=evo_config.reflection_patch_types,
+            reflection_control_fraction=evo_config.reflection_control_fraction,
+            reflection_replace_feedback=evo_config.reflection_replace_feedback,
             inspiration_sort_order=evo_config.inspiration_sort_order,
         )
 
@@ -466,6 +472,28 @@ class ShinkaEvolveRunner:
             )
         else:
             self.novelty_judge = None
+
+        # Reflector
+        if evo_config.use_reflection:
+            reflection_models = evo_config.reflection_llm_models or evo_config.llm_models
+            reflection_llm = AsyncLLMClient(
+                model_names=reflection_models,
+                **_llm_kwargs_with_headless_work_dir(
+                    evo_config.reflection_llm_kwargs,
+                    Path(self.results_dir),
+                ),
+            )
+            sync_reflector = Reflector(
+                reflection_llm_client=None,
+                language=evo_config.language,
+                grounding=evo_config.reflection_grounding,
+                min_evidence_chars=evo_config.reflection_min_evidence_chars,
+                min_score_gap=evo_config.reflection_min_score_gap,
+                contrastive=evo_config.reflection_contrastive,
+            )
+            self.reflector = AsyncReflector(sync_reflector, reflection_llm)
+        else:
+            self.reflector = None
 
         # Meta-prompt evolution components
         # These will be initialized in _setup_async after results_dir is set
@@ -777,6 +805,12 @@ class ShinkaEvolveRunner:
                             novelty_cost = metadata.get("novelty_cost")
                             total_costs += (
                                 novelty_cost if novelty_cost is not None else 0.0
+                            )
+                            reflection_cost = metadata.get("reflection_cost")
+                            total_costs += (
+                                reflection_cost
+                                if reflection_cost is not None
+                                else 0.0
                             )
                             meta_cost = metadata.get("meta_cost")
                             total_costs += meta_cost if meta_cost is not None else 0.0
@@ -1571,6 +1605,7 @@ class ShinkaEvolveRunner:
             base_metadata = {
                 "embed_cost": e_cost,
                 "novelty_cost": 0.0,  # No novelty cost for generation 0
+                "reflection_cost": 0.0,
                 "stdout_log": stdout_log,
                 "stderr_log": stderr_log,
                 "timeline_lane_mode": "pool_slots",
@@ -1648,6 +1683,7 @@ class ShinkaEvolveRunner:
             base_metadata = {
                 "embed_cost": e_cost,
                 "novelty_cost": 0.0,  # No novelty cost for generation 0 fallback
+                "reflection_cost": 0.0,
                 "evaluation_failed": True,
                 "stdout_log": "",
                 "stderr_log": "",
@@ -1695,6 +1731,25 @@ class ShinkaEvolveRunner:
                 metadata=base_metadata,
             )
 
+        if self.reflector is not None:
+            try:
+                r_status, r_diagnosis, r_cost = await self.reflector.reflect(
+                    initial_program,
+                    None,
+                )
+                initial_program.reflection_status = r_status
+                initial_program.reflection_diagnosis = r_diagnosis
+                if initial_program.metadata is None:
+                    initial_program.metadata = {}
+                initial_program.metadata["reflection_cost"] = r_cost
+            except Exception as e:
+                logger.warning(f"Initial reflection error: {e}")
+                initial_program.reflection_status = "fallback"
+                initial_program.reflection_diagnosis = ""
+                if initial_program.metadata is None:
+                    initial_program.metadata = {}
+                initial_program.metadata["reflection_cost"] = 0.0
+
         # Add to database
         await self.async_db.add_program_async(initial_program, verbose=self.verbose)
 
@@ -1702,8 +1757,14 @@ class ShinkaEvolveRunner:
         initial_api_cost = (initial_program.metadata or {}).get("api_costs", 0.0)
         initial_embed_cost = (initial_program.metadata or {}).get("embed_cost", 0.0)
         initial_novelty_cost = (initial_program.metadata or {}).get("novelty_cost", 0.0)
+        initial_reflection_cost = (initial_program.metadata or {}).get(
+            "reflection_cost", 0.0
+        )
         self.total_api_cost += (
-            initial_api_cost + initial_embed_cost + initial_novelty_cost
+            initial_api_cost
+            + initial_embed_cost
+            + initial_novelty_cost
+            + initial_reflection_cost
         )
 
         # Add the initial program to meta memory tracking
@@ -4103,6 +4164,7 @@ class ShinkaEvolveRunner:
                         **(job.meta_patch_data or {}),
                         "embed_cost": job.embed_cost,
                         "novelty_cost": job.novelty_cost,
+                        "reflection_cost": 0.0,
                         "stdout_log": stdout_log,
                         "stderr_log": stderr_log,
                         "results_missing": results is None,
@@ -4129,6 +4191,36 @@ class ShinkaEvolveRunner:
                     postprocess_finished_at=postprocess_started_at,
                 ),
             )
+
+            if self.reflector is not None:
+                try:
+                    parent_prog = None
+                    if job.parent_id:
+                        try:
+                            parent_prog = await self.async_db.get_async(job.parent_id)
+                        except Exception as e:
+                            logger.warning(
+                                f"Reflection parent fetch failed for {job.parent_id}: {e}"
+                            )
+
+                    r_status, r_diagnosis, r_cost = await self.reflector.reflect(
+                        program,
+                        parent_prog,
+                    )
+                    program.reflection_status = r_status
+                    program.reflection_diagnosis = r_diagnosis
+                    if program.metadata is None:
+                        program.metadata = {}
+                    program.metadata["reflection_cost"] = r_cost
+                    if r_cost > 0.0:
+                        self.total_api_cost += r_cost
+                except Exception as e:
+                    logger.warning(f"Reflection error for {job.job_id}: {e}")
+                    program.reflection_status = "fallback"
+                    program.reflection_diagnosis = ""
+                    if program.metadata is None:
+                        program.metadata = {}
+                    program.metadata["reflection_cost"] = 0.0
 
             # Add to database with timeout protection
             logger.info(

@@ -169,6 +169,8 @@ class Program:
     public_metrics: Dict[str, Any] = field(default_factory=dict)
     private_metrics: Dict[str, Any] = field(default_factory=dict)
     text_feedback: Union[str, List[str]] = ""
+    reflection_diagnosis: str = ""
+    reflection_status: str = ""  # one of: grounded | insufficient | skipped | fallback
     correct: bool = False  # Whether the program is functionally correct
     children_count: int = 0
 
@@ -431,6 +433,8 @@ class ProgramDatabase:
                 public_metrics TEXT, -- JSON serialized Dict[str, Any]
                 private_metrics TEXT, -- JSON serialized Dict[str, Any]
                 text_feedback TEXT, -- Text feedback for the program
+                reflection_diagnosis TEXT,
+                reflection_status TEXT,
                 complexity REAL,   -- Calculated complexity metric
                 embedding TEXT,    -- JSON serialized List[float]
                 embedding_pca_2d TEXT, -- JSON serialized List[float]
@@ -545,6 +549,30 @@ class ProgramDatabase:
                 logger.info("Successfully added text_feedback column")
         except sqlite3.Error as e:
             logger.error(f"Error during text_feedback migration: {e}")
+            # Don't raise - this is not critical for existing functionality
+
+        try:
+            if "reflection_diagnosis" not in columns:
+                logger.info("Adding reflection_diagnosis column to programs table")
+                self.cursor.execute(
+                    "ALTER TABLE programs ADD COLUMN reflection_diagnosis TEXT DEFAULT ''"
+                )
+                self.conn.commit()
+                logger.info("Successfully added reflection_diagnosis column")
+        except sqlite3.Error as e:
+            logger.error(f"Error during reflection_diagnosis migration: {e}")
+            # Don't raise - this is not critical for existing functionality
+
+        try:
+            if "reflection_status" not in columns:
+                logger.info("Adding reflection_status column to programs table")
+                self.cursor.execute(
+                    "ALTER TABLE programs ADD COLUMN reflection_status TEXT DEFAULT ''"
+                )
+                self.conn.commit()
+                logger.info("Successfully added reflection_status column")
+        except sqlite3.Error as e:
+            logger.error(f"Error during reflection_status migration: {e}")
             # Don't raise - this is not critical for existing functionality
 
         # Migration 2: Add system_prompt_id column if it doesn't exist
@@ -864,12 +892,12 @@ class ProgramDatabase:
                    (id, code, language, parent_id, archive_inspiration_ids,
                     top_k_inspiration_ids, generation, timestamp, code_diff,
                     combined_score, public_metrics, private_metrics,
-                    text_feedback, complexity, embedding, embedding_pca_2d,
-                    embedding_pca_3d, embedding_cluster_id, correct,
-                    children_count, metadata, island_idx, migration_history,
-                    system_prompt_id)
+                    text_feedback, reflection_diagnosis, reflection_status,
+                    complexity, embedding, embedding_pca_2d, embedding_pca_3d,
+                    embedding_cluster_id, correct, children_count, metadata,
+                    island_idx, migration_history, system_prompt_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                           ?, ?, ?, ?, ?, ?, ?)
+                           ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     program.id,
@@ -885,6 +913,8 @@ class ProgramDatabase:
                     public_metrics_json,
                     private_metrics_json,
                     text_feedback_str,
+                    program.reflection_diagnosis,
+                    program.reflection_status,
                     program.complexity,
                     embedding_json,  # Use serialized embedding
                     embedding_pca_2d_json,
@@ -1052,6 +1082,18 @@ class ProgramDatabase:
         # Handle text_feedback (simple string field)
         if "text_feedback" not in program_data or program_data["text_feedback"] is None:
             program_data["text_feedback"] = ""
+
+        if (
+            "reflection_diagnosis" not in program_data
+            or program_data["reflection_diagnosis"] is None
+        ):
+            program_data["reflection_diagnosis"] = ""
+
+        if (
+            "reflection_status" not in program_data
+            or program_data["reflection_status"] is None
+        ):
+            program_data["reflection_status"] = ""
 
         # Handle inspiration_ids
         archive_insp_ids_text = program_data.get("archive_inspiration_ids")
@@ -1688,6 +1730,8 @@ class ProgramDatabase:
                 p.embedding_cluster_id,
                 p.language,
                 p.text_feedback,
+                p.reflection_diagnosis,
+                p.reflection_status,
                 p.top_k_inspiration_ids,
                 p.archive_inspiration_ids,
                 p.migration_history,
@@ -3026,6 +3070,18 @@ class ProgramDatabase:
                     or program_data["text_feedback"] is None
                 ):
                     program_data["text_feedback"] = ""
+
+                if (
+                    "reflection_diagnosis" not in program_data
+                    or program_data["reflection_diagnosis"] is None
+                ):
+                    program_data["reflection_diagnosis"] = ""
+
+                if (
+                    "reflection_status" not in program_data
+                    or program_data["reflection_status"] is None
+                ):
+                    program_data["reflection_status"] = ""
 
                 programs.append(Program.from_dict(program_data))
 

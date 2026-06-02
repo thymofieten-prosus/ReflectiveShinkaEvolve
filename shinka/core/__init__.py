@@ -4,6 +4,8 @@ from .sampler import PromptSampler
 from .summarizer import MetaSummarizer
 from .novelty_judge import NoveltyJudge
 from .async_novelty_judge import AsyncNoveltyJudge
+from .reflector import Reflector
+from .async_reflector import AsyncReflector
 from .wrap_eval import run_shinka_eval
 from .prompt_evolver import (
     SystemPromptEvolver,
@@ -16,6 +18,8 @@ __all__ = [
     "MetaSummarizer",
     "NoveltyJudge",
     "AsyncNoveltyJudge",
+    "Reflector",
+    "AsyncReflector",
     "ShinkaEvolveRunner",
     "EvolutionConfig",
     "run_shinka_eval",

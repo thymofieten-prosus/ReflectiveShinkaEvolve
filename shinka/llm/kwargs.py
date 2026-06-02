@@ -3,6 +3,7 @@ import random
 from .providers.pricing import (
     is_reasoning_model,
     has_fixed_temperature,
+    temperature_unsupported,
     requires_reasoning,
 )
 from .providers.model_resolver import resolve_model_backend
@@ -120,6 +121,10 @@ def sample_model_kwargs(
     else:
         kwargs_dict["temperature"] = random.choice(temperatures)
 
+    # Some newer models reject the temperature param entirely -> omit it.
+    if temperature_unsupported(api_model_name):
+        kwargs_dict.pop("temperature", None)
+
     # 4.a) SET: max_output_tokens for OpenAI reasoning effort
     if provider in ("openai", "openrouter", "azure_openai") and is_reasoning_model(
         api_model_name
@@ -131,8 +136,11 @@ def sample_model_kwargs(
             kwargs_dict["reasoning"] = {"effort": "low"}
         elif r_effort == "max":
             kwargs_dict["reasoning"] = {"effort": "high"}
-        else:
+        elif r_effort in ("none", "minimal", "low", "medium", "high", "xhigh"):
             kwargs_dict["reasoning"] = {"effort": r_effort}
+        else:
+            # 'auto', '', or any unsupported value -> OpenAI default tier
+            kwargs_dict["reasoning"] = {"effort": "medium"}
 
         # 4.b.1) SET: auto-summarization for OpenAI reasoning effort
         if provider == "openai" and r_effort != "disabled":

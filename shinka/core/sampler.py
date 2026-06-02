@@ -6,6 +6,7 @@ from shinka.prompts import (
     construct_eval_history_msg,
     perf_str,
     format_text_feedback_section,
+    format_reflection_section,
     BASE_SYSTEM_MSG,
     DIFF_SYS_FORMAT,
     DIFF_ITER_MSG,
@@ -33,6 +34,10 @@ class PromptSampler:
         patch_types: Optional[List[str]] = None,
         patch_type_probs: Optional[List[float]] = None,
         use_text_feedback: bool = False,
+        use_reflection: bool = False,
+        reflection_patch_types: Optional[List[str]] = None,
+        reflection_control_fraction: float = 0.2,
+        reflection_replace_feedback: bool = True,
         inspiration_sort_order: Literal[
             "ascending", "chronological", "none"
         ] = "ascending",
@@ -41,11 +46,17 @@ class PromptSampler:
             patch_types = default_patch_types()
         if patch_type_probs is None:
             patch_type_probs = default_patch_type_probs()
+        if reflection_patch_types is None:
+            reflection_patch_types = ["diff", "full"]
 
         self.task_sys_msg = task_sys_msg
         self.language = language
         self.patch_types = patch_types
         self.patch_type_probs = patch_type_probs
+        self.use_reflection = use_reflection
+        self.reflection_patch_types = reflection_patch_types
+        self.reflection_control_fraction = reflection_control_fraction
+        self.reflection_replace_feedback = reflection_replace_feedback
         # Check if probabilities sum to 1.0 w. tolerance for errors
         prob_sum = np.sum(patch_type_probs)
         if not np.isclose(prob_sum, 1.0, atol=1e-6):
@@ -158,12 +169,32 @@ class PromptSampler:
         else:
             eval_history_msg = ""
 
-        # Format text feedback section for current program
-        text_feedback_section = ""
-        if self.use_text_feedback:
-            text_feedback_section = "\n" + format_text_feedback_section(
-                parent.text_feedback
+        inject_reflection = (
+            self.use_reflection
+            and patch_type in self.reflection_patch_types
+            and getattr(parent, "reflection_status", "") == "grounded"
+            and getattr(parent, "reflection_diagnosis", "")
+            and np.random.random() >= self.reflection_control_fraction
+        )
+        if inject_reflection:
+            diagnosis_section = "\n" + format_reflection_section(
+                parent.reflection_diagnosis
             )
+            if self.reflection_replace_feedback:
+                text_feedback_section = diagnosis_section
+            else:
+                base = (
+                    "\n" + format_text_feedback_section(parent.text_feedback)
+                    if self.use_text_feedback
+                    else ""
+                )
+                text_feedback_section = base + diagnosis_section
+        else:
+            text_feedback_section = ""
+            if self.use_text_feedback:
+                text_feedback_section = "\n" + format_text_feedback_section(
+                    parent.text_feedback
+                )
 
         if patch_type == "diff":
             iter_msg = DIFF_ITER_MSG.format(
